@@ -1,14 +1,153 @@
 ##Shiny server
 
 ##Install and load packages
-#install.packages("shiny")
-#install.packages("quantmod")
-#install.packages("ggplot2")
-#install.packages("reshape")
-#library(shiny)
-library(ggplot2)
-library(quantmod)
-library(reshape)
+if ("ggplot2" %in% installed.packages()) {
+    library(ggplot2)
+} else {
+  install.packages("ggplot2")
+  library(ggplot2)
+}
+if ("quantmod" %in% installed.packages()) {
+    library(quantmod)
+} else {
+  install.packages("quantmod")
+  library(quantmod)
+}
+if ("reshape" %in% installed.packages()) {
+    library(reshape)
+} else {
+  install.packages("reshape")
+  library(reshape)
+}
+if ("jsonlite" %in% installed.packages()) {
+    library(jsonlite)
+} else {
+  install.packages("jsonlite")
+  library(jsonlite)
+}
+if ("plyr" %in% installed.packages()) {
+    library(plyr)
+} else {
+  install.packages("plyr")
+  library(plyr)
+}
+if ("shiny" %in% installed.packages()) {
+    library(shiny)
+} else {
+  install.packages("shiny")
+  library(shiny)
+}
+
+##Naming standards
+IS_names <- c("totalRevenue"="Total Revenue", "costOfRevenue"="Cost of Revenue", "grossProfit"="Gross Profit", "researchDevelopment"="Research Development", "sellingGeneralAdministrative"="Selling General and Administrative", "nonRecurring"="Non Recurring", "otherOperatingExpenses"="Others", "totalOperatingExpenses"="Total Operating Expenses", "operatingIncome"="Operating Income or Loss", "totalOtherIncomeExpenseNet"="Total Other Income/Expenses Net", "ebit"="Earnings Before Interest and Taxes", "interestExpense"="Interest Expense", "incomeBeforeTax"="Income Before Tax", "incomeTaxExpense"="Income Tax Expense", "minorityInterest"="Minority Interest", "netIncomeFromContinuingOps"="Net Income From Continuing Ops", "discontinuedOperations"="Discontinued Operations", "extraordinaryItems"="Extraordinary Items", "effectOfAccountingCharges"="Effect Of Accounting Changes", "otherItems"="Other Items", "netIncome"="Net Income", "netIncomeApplicableToCommonShares"="Net Income Applicable To Common Shares")
+BS_names <- c("intangibleAssets"="Intangible Assets", "totalLiab"="Total Liabilities", "totalStockholderEquity"="Total Stockholder Equity", "otherCurrentLiab"="Other Current Liabilities", "totalAssets"="Total Assets", "commonStock"="Common Stock", "otherCurrentAssets"="Other Current Assets", "retainedEarnings"="Retained Earnings", "otherLiab"="Other Liabilities", "goodWill"="Goodwill", "treasuryStock"="Treasury Stock", "otherAssets"="Other Assets", "cash"="Cash And Cash Equivalents", "totalCurrentLiabilities"="Total Current Liabilities", "deferredLongTermAssetCharges"="Deferred Long Term Asset Charges", "shortLongTermDebt"="Short/Current Long Term Debt", "otherStockholderEquity"="Other Stockholder Equity", "propertyPlantEquipment"="Property Plant and Equipment", "totalCurrentAssets"="Total Current Assets", "longTermInvestments"="Long Term Investments", "netTangibleAssets"="Net Tangible Assets", "shortTermInvestments"="Short Term Investments", "netReceivables"="Net Receivables", "longTermDebt"="Long Term Debt", "inventory"="Inventory", "accountsPayable"="Accounts Payable", "sharesOutstanding"="Total Common Shares Outstanding")
+CF_names <- c("investments"="Investments", "changeToLiabilities"="Changes In Liabilities", "totalCashflowsFromInvestingActivities"="Total Cash Flows From Investing Activities", "netBorrowings"="Net Borrowings", "totalCashFromFinancingActivities"="Total Cash Flows From Financing Activities", "changeToOperatingActivities"="Changes In Other Operating Activities", "netIncome"="Net Income", "changeInCash"="Change In Cash and Cash Equivalents", "effectOfExchangeRate"="Effect Of Exchange Rate Changes", "totalCashFromOperatingActivities"="Total Cash Flow From Operating Activities", "depreciation"="Depreciation", "otherCashflowsFromInvestingActivities"="Other Cash flows from Investing Activities", "changeToAccountReceivables"="Changes In Accounts Receivables", "otherCashflowsFromFinancingActivities"="Other Cash Flows from Financing Activities", "changeToNetincome"="Adjustments To Net Income", "capitalExpenditures"="Capital Expenditures")
+
+
+scrapy_stocks <- function(stock, period) {
+  if ("rvest" %in% installed.packages()) {
+    library(rvest)
+  } else {
+    install.packages("rvest")
+    library(rvest)
+  }
+  for (i in 1:length(stock)) {
+    tryCatch(
+      {
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/financials?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          IS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$incomeStatementHistory$incomeStatementHistory)
+        } else {
+          IS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$incomeStatementHistoryQuarterly$incomeStatementHistory)
+        }
+        IS <- rename(IS, IS_names)
+        IS_rownames <- IS$endDate$fmt
+        IS <- IS[intersect(names(IS), unname(IS_names))]
+        for (j in names(IS)) {
+          try(IS[[j]] <- IS[[j]]$longFmt, silent=TRUE)
+        }
+        IS <- apply(IS,2,function(x){gsub(",","",x)})
+        IS <- as.data.frame(apply(IS,2,as.numeric))
+        rownames(IS) <- IS_rownames
+        IS <- t(IS)
+        temp1 <- IS
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/balance-sheet?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          BS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$balanceSheetHistory$balanceSheetStatements)
+        } else {
+          BS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$balanceSheetHistoryQuarterly$balanceSheetStatements)
+        }
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/key-statistics?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        BS[,"sharesOutstanding"] <- tmp$context$dispatcher$stores$QuoteSummaryStore$defaultKeyStatistics$sharesOutstanding$longFmt
+        BS <- rename(BS, BS_names)
+        BS_rownames <- BS$endDate$fmt
+        BS <- BS[intersect(names(BS), unname(BS_names))]
+        for (j in names(BS)) {
+          try(BS[[j]] <- BS[[j]]$longFmt, silent=TRUE)
+        }
+        BS <- apply(BS,2,function(x){gsub(",","",x)})
+        BS <- as.data.frame(apply(BS,2,as.numeric))
+        rownames(BS) <- BS_rownames
+        BS <- t(BS)
+        temp2 <- BS
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/cash-flow?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          CF <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$cashflowStatementHistory$cashflowStatements)
+        } else {
+          CF <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$cashflowStatementHistoryQuarterly$cashflowStatements)
+        }
+        CF <- rename(CF, CF_names)
+        CF_rownames <- CF$endDate$fmt
+        CF <- CF[intersect(names(CF), unname(CF_names))]
+        for (j in names(CF)) {
+          try(CF[[j]] <- CF[[j]]$longFmt, silent=TRUE)
+        }
+        CF <- apply(CF,2,function(x){gsub(",","",x)})
+        CF <- as.data.frame(apply(CF,2,as.numeric))
+        rownames(CF) <- CF_rownames
+        CF <- t(CF)
+        temp3 <- CF
+        assign(paste0(stock[i],'.f'),value = list(IS = temp1,BS = temp2,CF = temp3),envir = parent.frame())
+        return(list(IS = temp1,BS = temp2,CF = temp3))
+      },
+      error = function(cond){
+        message(stock[i], "Give error ",cond)
+      }
+    )
+  }
+}
 
 
 ##Get the annual financial statement data
@@ -19,14 +158,14 @@ data <- function(ticker){
         for (i in 1:length(ticker)){
                 
                 #Get the stock ticker information
-                temp_data <- try(getFinancials(ticker[i], type=c('BS','IS','CF'), period=c('A'), auto.assign = FALSE), silent=TRUE)
+                temp_data <- scrapy_stocks(ticker[i], "A")
                 
                 #Create temporary data frames for each of the financial statments
-                temp_dataBS <- data.frame(temp_data$BS$A, FinancialStatement="BalanceSheet")
+                temp_dataBS <- data.frame(temp_data$BS, FinancialStatement="BalanceSheet")
                 temp_dataBS$Metric <- rownames(temp_dataBS)
-                temp_dataIS <- data.frame(temp_data$IS$A, FinancialStatement="IncomeStatement")
+                temp_dataIS <- data.frame(temp_data$IS, FinancialStatement="IncomeStatement")
                 temp_dataIS$Metric <- rownames(temp_dataIS)
-                temp_dataCF <- data.frame(temp_data$CF$A, FinancialStatement="CashFlow")
+                temp_dataCF <- data.frame(temp_data$CF, FinancialStatement="CashFlow")
                 temp_dataCF$Metric <- rownames(temp_dataCF)
                 temp_data <- rbind(melt(temp_dataBS, id=c("Metric", "FinancialStatement")), melt(temp_dataIS, id=c("Metric", "FinancialStatement")), melt(temp_dataCF, id=c("Metric", "FinancialStatement")))
                 
@@ -59,14 +198,14 @@ Qtrdata <- function(ticker){
         for (i in 1:length(ticker)){
                 
                 #Get the stock ticker information
-                temp_data <- try(getFinancials(ticker[i], type=c('BS','IS','CF'), period=c('Q'), auto.assign = FALSE), silent=TRUE)
+                temp_data <- scrapy_stocks(ticker[i], "Q")
                 
                 #Create temporary data frames for each of the financial statments
-                temp_dataBS <- data.frame(temp_data$BS$Q, FinancialStatement="BalanceSheet")
+                temp_dataBS <- data.frame(temp_data$BS, FinancialStatement="BalanceSheet")
                 temp_dataBS$Metric <- rownames(temp_dataBS)
-                temp_dataIS <- data.frame(temp_data$IS$Q, FinancialStatement="IncomeStatement")
+                temp_dataIS <- data.frame(temp_data$IS, FinancialStatement="IncomeStatement")
                 temp_dataIS$Metric <- rownames(temp_dataIS)
-                temp_dataCF <- data.frame(temp_data$CF$Q, FinancialStatement="CashFlow")
+                temp_dataCF <- data.frame(temp_data$CF, FinancialStatement="CashFlow")
                 temp_dataCF$Metric <- rownames(temp_dataCF)
                 
                 #Melt the data to reshape the date column variables into a value under a single variable
@@ -176,7 +315,7 @@ DCF_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, GrowthD
         
         
         #Aggregate the data to get the free cash flow data
-        FreeCashFlowAll_df <- data_finaldf[(data_finaldf$Metric=="Capital Expenditures" | data_finaldf$Metric=="Cash from Operating Activities"),]
+        FreeCashFlowAll_df <- data_finaldf[(data_finaldf$Metric=="Capital Expenditures" | data_finaldf$Metric=="Total Cash Flow From Operating Activities"),]
         FreeCashFlowAll_df <- FreeCashFlowAll_df[order(as.character(FreeCashFlowAll_df$Ticker), FreeCashFlowAll_df$Date, decreasing = FALSE),]
         FreeCashFlowAll_df <- aggregate(Value ~ FinancialStatement + Date + Ticker, FreeCashFlowAll_df, FUN = sum)
         
@@ -206,7 +345,7 @@ DCF_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, GrowthD
                 for (x in 1:DCF_YearsProjection){
                         if (x==1){ #When i is equal to 1 then do not include the growth decline rate
                                 tempYR1 <- maxCashFlow$Value[1] * (1 + (DCFGrowthRate * MarginSafety))
-                                tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE))
+                                tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='yahoo'), silent = TRUE))
                                 colnames(tempPrice_df) <- sub(".+\\.", "", colnames(tempPrice_df))
                                 ClosePrice <- tempPrice_df$Close[nrow(tempPrice_df)]
                                 FCF <- maxCashFlow$Value[1]
@@ -269,8 +408,8 @@ DCF_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, GrowthD
                                         TotalNPV_FCF <- DCF_finaldf[DCF_finaldf$Ticker==ticker[i] & DCF_finaldf$`NetPresentValue(PredictedValue)`!="NA",]
                                         TotalNPV_FCF <- sum(as.numeric(as.character(TotalNPV_FCF$`NetPresentValue(PredictedValue)`)))
                                         
-                                        Cash_Equivalents <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash & Equivalents" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]
-                                        LongTermDebt <- (data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Total Long Term Debt" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]) * -1
+                                        Cash_Equivalents <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash And Cash Equivalents" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]
+                                        LongTermDebt <- (data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Long Term Debt" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]) * -1
                                         Company_Value <- round(sum(NPV_Terminal_Value, TotalNPV_FCF, Cash_Equivalents, LongTermDebt, na.rm = TRUE), digits = 2)
                                         
                                         DCF_finaldf2 <- rbind(DCF_finaldf2, cbind("Ticker"=ticker[i], "Total_NPV_FCF"=TotalNPV_FCF, "Terminal_Value"=Terminal_Value, "NPV(Terminal_Value)"=NPV_Terminal_Value, 
@@ -357,7 +496,7 @@ PE_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, Discount
                                 counter <- counter + 1
                                 
                                 #Get the ticker's stock price and append date column
-                                tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign = FALSE, src='google'), silent = TRUE)
+                                tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign = FALSE, src='yahoo'), silent = TRUE)
                                 tempPrice_df <- data.frame(tempPrice_df)
                                 tempPrice_df$Date <- rownames(tempPrice_df)
                                 rownames(tempPrice_df) <- NULL
@@ -396,7 +535,7 @@ PE_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, Discount
                 
                 #Get the most current closing stock price and stock price for the previous years
                 tempClosePrice <- ClosePrice_df[ClosePrice_df$Ticker==ticker[i],]
-                recentClosePrice <- try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE)
+                recentClosePrice <- try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='yahoo'), silent = TRUE)
                 recentClosePrice <- data.frame(recentClosePrice)
                 recentClosePrice$Date <- rownames(recentClosePrice) 
                 row.names(recentClosePrice) <- NULL
@@ -447,7 +586,7 @@ PE_Valuation <- function(Get, ticker, ExpectedGrowthRate, MarginSafety, Discount
                 PEGrowthRate <- round((OneYearValue / CurrentYearValue) - 1, digits = 3)
                 
                 #Get the close price of the stock
-                tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE))
+                tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='yahoo'), silent = TRUE))
                 colnames(tempPrice_df) <- sub(".+\\.", "", colnames(tempPrice_df))
                 ClosePrice <- tempPrice_df$Close[nrow(tempPrice_df)]
                 
@@ -564,7 +703,7 @@ Misc_Metrics <- function(Get, Get2, ticker){
                 #Show cash and cash equivalents over time
                 Cash_Equivalents_df <- data.frame()
                 for (i in 1:length(ticker)){
-                        CashEquivalents_temp <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash & Equivalents",][,3:5]
+                        CashEquivalents_temp <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash And Cash Equivalents",][,3:5]
                         Cash_Equivalents_df <- rbind(Cash_Equivalents_df, CashEquivalents_temp)
                         
                 }
@@ -632,7 +771,7 @@ Misc_Metrics <- function(Get, Get2, ticker){
                         Revenue_df <- data_finaldf[data_finaldf$Metric=="Total Revenue" & data_finaldf$Ticker==ticker[i],]
                         Revenue_df <- Revenue_df[order(Revenue_df$Date, decreasing = TRUE),]
                         
-                        NetIncome_df <- data_finaldf[data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
+                        NetIncome_df <- data_finaldf[data_finaldf$FinancialStatement=="IncomeStatement" & data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
                         NetIncome_df <- NetIncome_df[order(NetIncome_df$Date, decreasing = TRUE),]
                         
                         NetMargin <- round(NetIncome_df$Value / Revenue_df$Value, digits = 3)
@@ -671,7 +810,7 @@ Misc_Metrics <- function(Get, Get2, ticker){
                         
                         ShareholdersEquity <- ShareholdersEquity_Assets$Value - ShareholdersEquity_Liabilities$Value
                         
-                        NetIncome_df <- data_finaldf[data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
+                        NetIncome_df <- data_finaldf[data_finaldf$FinancialStatement=="IncomeStatement" & data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
                         NetIncome_df <- NetIncome_df[NetIncome_df$Date<=max(ShareholdersEquity_Assets$Date),]
                         NetIncome_df <- NetIncome_df[order(NetIncome_df$Date, decreasing = TRUE),]
                         
@@ -704,7 +843,7 @@ Misc_Metrics <- function(Get, Get2, ticker){
                 #Show long term debt to equity over time
                 DebtEquity_df <- data.frame()
                 for (i in 1: length(ticker)){
-                        LongTermDebt_df <- data_finaldf[data_finaldf$Metric=="Total Long Term Debt" & data_finaldf$Ticker==ticker[i],]
+                        LongTermDebt_df <- data_finaldf[data_finaldf$Metric=="Long Term Debt" & data_finaldf$Ticker==ticker[i],]
                         LongTermDebt_df <- LongTermDebt_df[order(LongTermDebt_df$Date, decreasing = TRUE),]
                         
                         ShareholdersEquity_Assets <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$FinancialStatement=="BalanceSheet" & data_finaldf$Metric=="Total Assets",]
@@ -750,8 +889,7 @@ Financial_Statements <- function(ticker){
 }
 
 
-shinyServer(
-        function(input, output){
+server <- function(input, output){
                 
                 ##Group these outputs for DCF Valuation Model Tab
                 output$DCF_Model.plot <- renderPlot({DCF_Valuation(Get = "Plot_1", ticker = input$ticker, ExpectedGrowthRate = input$ExpectedGrowthRate, MarginSafety = input$MarginSafety,
@@ -811,4 +949,130 @@ shinyServer(
                 
                 ##Group this output by oneself, for Financial statements tab
                 output$FinanceData.table <- renderDataTable({Financial_Statements(ticker = input$ticker)})
-        })
+        }
+
+ui <- fluidPage(    
+        
+        # Give the page a title
+        titlePanel("Fundamental Stock Analysis"),
+        
+        # Generate a row with a sidebar
+        sidebarLayout(      
+                
+                # Define the sidebar layout
+                sidebarPanel(
+                        textInput(inputId = "ticker", label = "Stock Ticker(s):", value = paste(c("GOOG"), collapse=",")),
+                        helpText("Enter Stock Tickers, separated by commas, no spaces. Recommended to not input more than four stock tickers. Please be patient as the data takes a little while to load."),
+                        hr(),
+                        
+                        sliderInput(inputId = "ExpectedGrowthRate", label = "Expected Growth Rate:", min = -.01, max = .30, value = -.01, step = .01),
+                        helpText("When the expected growth rate is negative, the growth rate is equal to the slope of the regression line (Date used as sole independent variable.)"),
+                        hr(),
+                                                
+                        sliderInput(inputId = "MarginSafety", label = "Margin of Safety", min = 0, max = .30, value = .10, step = .01),
+                        helpText("The margin of safety is applied to the expected growth rate, to come up with a conservative growth rate estimate."),
+                        hr(),
+                        
+                        sliderInput(inputId = "GrowthDeclineRate", label = "Growth Decline Rate:", min = 0, max = .15, value = .05, step = .01),
+                        helpText("Growth decline rate is applied to the conservative growth rate one year after first year projections. This is because it is hard to keep consistent high growth rates in the long run."),
+                        hr(),
+                        
+                        sliderInput(inputId = "DiscountRate", label = "Discount Rate:", min = 0, max = .20, value = .09, step = .01),
+                        helpText("Discount rate initially set to .09 because 9% rate of return is the historic long term growth of the stock market."),
+                        hr(),
+                        
+                        sliderInput(inputId = "DCF_YearsProjection", label = "DCF Valuation Model. Number of years in future to project:", min = 5, max = 10, value = 5, step = 1),
+                        helpText("Generally you would project a company's cash flows five to ten years in the future."),
+                        hr(),
+                        
+                        sliderInput(inputId = "LongTermGrowthRate", label = "Long Term Cash Flow Growth Rate:", min = 0.01, max = .05, value = .03, step = .01),
+                        helpText("The long term cash flow growth rate in the US economy is around three percent."),
+                        hr(),
+                        
+                        submitButton(text = "Analyze")
+                        ),
+                
+                
+                
+                # Create a spot for the barplot
+                mainPanel(
+                        tabsetPanel(
+                                tabPanel("Discounted Cash Flow Valuation Model",
+                                         tabsetPanel(
+                                                 tabPanel("Analysis",
+                                                          p("Due to the amount of data being loaded and read, this app may take a couple seconds to load for each tab..."),
+                                                          plotOutput("DCF_Model.plot"),
+                                                          p("The DCF Model projects future cash flows and discounts them back to the present value; this is a valuation method that estimates the intrinsic value of an investment opportunity."),
+                                                          hr(),
+                                                          plotOutput("DCF_Model.plot2"),
+                                                          p("Generally recommended to look for a company with stable or increasing cash flows over time. The free cash flows of a company are hard to maintain at a high growth rate, so each year, the conservative growth rate will decline by the growth decline rate. Free cash flow is used for paying debts, dividends, buybacks, or investing in the future growth of a company.")), 
+                                                 tabPanel("Data/Calculations",
+                                                          h2("DCF Valuation Table"),
+                                                          dataTableOutput("DCF_Model.table2"),
+                                                          hr(),
+                                                          h2("Free Cash Flows Projection and Values Table "),
+                                                          dataTableOutput("DCF_Model.table")))),
+                                
+                                
+                                tabPanel("Price Earnings Multiple Valuation Model",
+                                         tabsetPanel(
+                                                 tabPanel("Analysis",
+                                                          plotOutput("PE_Model.plot"),
+                                                          p("In this method, a five-year price target is determined based on historical P/E valuation."),
+                                                          hr(),
+                                                          plotOutput("PE_Model.plot2"),
+                                                          p("The Earnings per share is the profit that a company makes per share of stock. A growing EPS is better than it decreasing or staying stable. Calculated by dividing 'Net Income / Shares Outstanding'.")), 
+                                                 tabPanel("Data/Calculations",
+                                                          h2("PE Valuation Table"),
+                                                          dataTableOutput("PE_Model.table"),
+                                                          hr(),
+                                                          h2("EPS Table"),
+                                                          dataTableOutput("PE_Model.table2")))),
+                                
+                                
+                                tabPanel("Fundamental Analysis",
+                                         tabsetPanel(
+                                                 tabPanel("Analysis",
+                                                          plotOutput("Cash_Equivalents.plot"),
+                                                          p("Generally recommended to look for Cash and Equivalents to increase over time. Reported on the balance sheet. An increasing value means that there is more cash reserves over time. Even if this metric is decreasing over time, the company can just be investing the reserve money to improve the business."),
+                                                          hr(color="black"),
+                                                          plotOutput("Book_Value.plot"),
+                                                          p("Generally recommended to look for book value to increase over time. This shows how much money, you would receive for your shares of stock if the company liquidates, selling all of its assets after paying off its debts. You want to look for companies with increasing book value per share because they are companies that are creating value. To calculate: 'Shareholders Equity / Shares Outstanding'."),
+                                                          hr(),
+                                                          plotOutput("Net_Margin.plot"),
+                                                          p("Generally recommended to look for net margin to increase over time. Net margin is what percent of sales is profit. This figure differs greatly from industry to industry. If a company is able to sustain high profit margins, then the company may have a strong brand name or patented products that competitors can't compete with. The higher the net margin, the better. To calculate 'Net Income / Revenue'."),
+                                                          hr(),
+                                                          plotOutput("Return_Equity.plot"),
+                                                          p("Generally recommended that return on equity is consistently high. Return on equity tells us how efficiently a company uses its assets to generate earnings. The higher the return on equity, the better. To calculate: 'Net Income / Shareholders Equity"),
+                                                          hr(),
+                                                          plotOutput("Debt_Equity.plot"),
+                                                          p("Generally recommended to look for debt to equity that has been consistently low or decreasing. Long term debt to equity ratio indicates how much debt a company in relation to its shareholder's equity. High debt levels are a huge warning sign as it relies on debt to finance its growth. If a company has an increasing debt to equity ratio, then the investment may become risky because the company cannot meet its debt obligations. To calculate: 'Long-Term Debt / Shareholders Equity'")), 
+                                                 tabPanel("Data/Calculations",
+                                                          h2("Cash Equivalents Table"),
+                                                          dataTableOutput("Cash_Equivalents.table"),
+                                                          hr(),
+                                                          h2("Book Value per Share Table"),
+                                                          dataTableOutput("Book_Value.table"),
+                                                          hr(),
+                                                          h2("Net/Profit Margin Table"),
+                                                          dataTableOutput("Net_Margin.table"),
+                                                          hr(),
+                                                          h2("Return on Equity Table"),
+                                                          dataTableOutput("Return_Equity.table"),
+                                                          hr(color="black"),
+                                                          h2("Long Term Debt to Equity Table"),
+                                                          dataTableOutput("Debt_Equity.table")))),
+                                
+                                
+                                
+                                tabPanel("Financial Statements",
+                                         dataTableOutput("FinanceData.table")),
+                                
+                                tabPanel("More Details")
+                        ) 
+                )
+                
+        )
+)
+
+shinyApp(ui = ui, server = server)

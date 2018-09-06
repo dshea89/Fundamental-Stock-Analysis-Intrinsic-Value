@@ -1,11 +1,35 @@
 ###Automated Stock Analysis
 ##Install and load required packages
-#install.packages("quantmod")
-#install.packages("reshape")
-#install.packages("ggplot2")
-library(quantmod)
-library(reshape)
-library(ggplot2)
+if ("ggplot2" %in% installed.packages()) {
+    library(ggplot2)
+} else {
+  install.packages("ggplot2")
+  library(ggplot2)
+}
+if ("quantmod" %in% installed.packages()) {
+    library(quantmod)
+} else {
+  install.packages("quantmod")
+  library(quantmod)
+}
+if ("reshape" %in% installed.packages()) {
+    library(reshape)
+} else {
+  install.packages("reshape")
+  library(reshape)
+}
+if ("jsonlite" %in% installed.packages()) {
+    library(jsonlite)
+} else {
+  install.packages("jsonlite")
+  library(jsonlite)
+}
+if ("plyr" %in% installed.packages()) {
+    library(plyr)
+} else {
+  install.packages("plyr")
+  library(plyr)
+}
 
 ##Choose stock tickers to grab data and other parameters
 ticker <- c("MSFT","GOOG","AMZN","IBM")
@@ -16,20 +40,131 @@ DiscountRate <- .09
 DCF_YearsProjection <- 5
 LongTermGrowthRate <- .03
 
+##Naming standards
+IS_names <- c("totalRevenue"="Total Revenue", "costOfRevenue"="Cost of Revenue", "grossProfit"="Gross Profit", "researchDevelopment"="Research Development", "sellingGeneralAdministrative"="Selling General and Administrative", "nonRecurring"="Non Recurring", "otherOperatingExpenses"="Others", "totalOperatingExpenses"="Total Operating Expenses", "operatingIncome"="Operating Income or Loss", "totalOtherIncomeExpenseNet"="Total Other Income/Expenses Net", "ebit"="Earnings Before Interest and Taxes", "interestExpense"="Interest Expense", "incomeBeforeTax"="Income Before Tax", "incomeTaxExpense"="Income Tax Expense", "minorityInterest"="Minority Interest", "netIncomeFromContinuingOps"="Net Income From Continuing Ops", "discontinuedOperations"="Discontinued Operations", "extraordinaryItems"="Extraordinary Items", "effectOfAccountingCharges"="Effect Of Accounting Changes", "otherItems"="Other Items", "netIncome"="Net Income", "netIncomeApplicableToCommonShares"="Net Income Applicable To Common Shares")
+BS_names <- c("intangibleAssets"="Intangible Assets", "totalLiab"="Total Liabilities", "totalStockholderEquity"="Total Stockholder Equity", "otherCurrentLiab"="Other Current Liabilities", "totalAssets"="Total Assets", "commonStock"="Common Stock", "otherCurrentAssets"="Other Current Assets", "retainedEarnings"="Retained Earnings", "otherLiab"="Other Liabilities", "goodWill"="Goodwill", "treasuryStock"="Treasury Stock", "otherAssets"="Other Assets", "cash"="Cash And Cash Equivalents", "totalCurrentLiabilities"="Total Current Liabilities", "deferredLongTermAssetCharges"="Deferred Long Term Asset Charges", "shortLongTermDebt"="Short/Current Long Term Debt", "otherStockholderEquity"="Other Stockholder Equity", "propertyPlantEquipment"="Property Plant and Equipment", "totalCurrentAssets"="Total Current Assets", "longTermInvestments"="Long Term Investments", "netTangibleAssets"="Net Tangible Assets", "shortTermInvestments"="Short Term Investments", "netReceivables"="Net Receivables", "longTermDebt"="Long Term Debt", "inventory"="Inventory", "accountsPayable"="Accounts Payable", "sharesOutstanding"="Total Common Shares Outstanding")
+CF_names <- c("investments"="Investments", "changeToLiabilities"="Changes In Liabilities", "totalCashflowsFromInvestingActivities"="Total Cash Flows From Investing Activities", "netBorrowings"="Net Borrowings", "totalCashFromFinancingActivities"="Total Cash Flows From Financing Activities", "changeToOperatingActivities"="Changes In Other Operating Activities", "netIncome"="Net Income", "changeInCash"="Change In Cash and Cash Equivalents", "effectOfExchangeRate"="Effect Of Exchange Rate Changes", "totalCashFromOperatingActivities"="Total Cash Flow From Operating Activities", "depreciation"="Depreciation", "otherCashflowsFromInvestingActivities"="Other Cash flows from Investing Activities", "changeToAccountReceivables"="Changes In Accounts Receivables", "otherCashflowsFromFinancingActivities"="Other Cash Flows from Financing Activities", "changeToNetincome"="Adjustments To Net Income", "capitalExpenditures"="Capital Expenditures")
+
+
+scrapy_stocks <- function(stock, period) {
+  if ("rvest" %in% installed.packages()) {
+    library(rvest)
+  } else {
+    install.packages("rvest")
+    library(rvest)
+  }
+  for (i in 1:length(stock)) {
+    tryCatch(
+      {
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/financials?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          IS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$incomeStatementHistory$incomeStatementHistory)
+        } else {
+          IS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$incomeStatementHistoryQuarterly$incomeStatementHistory)
+        }
+        IS <- rename(IS, IS_names)
+        IS_rownames <- IS$endDate$fmt
+        IS <- IS[intersect(names(IS), unname(IS_names))]
+        for (j in names(IS)) {
+          try(IS[[j]] <- IS[[j]]$longFmt, silent=TRUE)
+        }
+        IS <- apply(IS,2,function(x){gsub(",","",x)})
+        IS <- as.data.frame(apply(IS,2,as.numeric))
+        rownames(IS) <- IS_rownames
+        IS <- t(IS)
+        temp1 <- IS
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/balance-sheet?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          BS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$balanceSheetHistory$balanceSheetStatements)
+        } else {
+          BS <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$balanceSheetHistoryQuarterly$balanceSheetStatements)
+        }
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/key-statistics?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        BS[,"sharesOutstanding"] <- tmp$context$dispatcher$stores$QuoteSummaryStore$defaultKeyStatistics$sharesOutstanding$longFmt
+        BS <- rename(BS, BS_names)
+        BS_rownames <- BS$endDate$fmt
+        BS <- BS[intersect(names(BS), unname(BS_names))]
+        for (j in names(BS)) {
+          try(BS[[j]] <- BS[[j]]$longFmt, silent=TRUE)
+        }
+        BS <- apply(BS,2,function(x){gsub(",","",x)})
+        BS <- as.data.frame(apply(BS,2,as.numeric))
+        rownames(BS) <- BS_rownames
+        BS <- t(BS)
+        temp2 <- BS
+        url <- "https://finance.yahoo.com/quote/"
+        url <- paste0(url,stock[i],"/cash-flow?p=",stock[i])
+        wahis.session <- html_session(url)
+        p <- wahis.session %>%
+             html_nodes(xpath="//text()[contains(.,'root.App.main')]")%>%
+             html_text()
+        tmp <- sub('.*root.App.main = ', '', p)
+        tmp <- sub(';\n}\\(this\\)\\);.*', '', tmp)
+        tmp <- fromJSON(tmp)
+        if (period == "A") {
+          CF <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$cashflowStatementHistory$cashflowStatements)
+        } else {
+          CF <- as.data.frame(tmp$context$dispatcher$stores$QuoteSummaryStore$cashflowStatementHistoryQuarterly$cashflowStatements)
+        }
+        CF <- rename(CF, CF_names)
+        CF_rownames <- CF$endDate$fmt
+        CF <- CF[intersect(names(CF), unname(CF_names))]
+        for (j in names(CF)) {
+          try(CF[[j]] <- CF[[j]]$longFmt, silent=TRUE)
+        }
+        CF <- apply(CF,2,function(x){gsub(",","",x)})
+        CF <- as.data.frame(apply(CF,2,as.numeric))
+        rownames(CF) <- CF_rownames
+        CF <- t(CF)
+        temp3 <- CF
+        assign(paste0(stock[i],'.f'),value = list(IS = temp1,BS = temp2,CF = temp3),envir = parent.frame())
+        return(list(IS = temp1,BS = temp2,CF = temp3))
+      },
+      error = function(cond){
+        message(stock[i], "Give error ",cond)
+      }
+    )
+  }
+}
+
 
 ##Get the financial statement data of the tickers for the past four years
 data <- data.frame()
-for (i in 1:length(ticker)){
+for (i in 1:length(ticker)) {
   
   #Get the stock ticker information
-  temp_data <- try(getFinancials(ticker[i], type=c('BS','IS','CF'), period=c('A'), auto.assign = FALSE), silent=TRUE)
+  temp_data <- scrapy_stocks(ticker[i], "A")
   
   #Create temporary data frames for each of the financial statments
-  temp_dataBS <- data.frame(temp_data$BS$A, FinancialStatement="BalanceSheet")
+  temp_dataBS <- data.frame(temp_data$BS, FinancialStatement="BalanceSheet")
   temp_dataBS$Metric <- rownames(temp_dataBS)
-  temp_dataIS <- data.frame(temp_data$IS$A, FinancialStatement="IncomeStatement")
+  temp_dataIS <- data.frame(temp_data$IS, FinancialStatement="IncomeStatement")
   temp_dataIS$Metric <- rownames(temp_dataIS)
-  temp_dataCF <- data.frame(temp_data$CF$A, FinancialStatement="CashFlow")
+  temp_dataCF <- data.frame(temp_data$CF, FinancialStatement="CashFlow")
   temp_dataCF$Metric <- rownames(temp_dataCF)
   temp_data <- rbind(melt(temp_dataBS, id=c("Metric", "FinancialStatement")), melt(temp_dataIS, id=c("Metric", "FinancialStatement")), melt(temp_dataCF, id=c("Metric", "FinancialStatement")))
 
@@ -54,14 +189,14 @@ Qtrdata <- data.frame()
 for (i in 1:length(ticker)){
   
   #Get the stock ticker information
-  temp_data <- try(getFinancials(ticker[i], type=c('BS','IS','CF'), period=c('Q'), auto.assign = FALSE), silent=TRUE)
+  temp_data <- scrapy_stocks(ticker[i], "Q")
   
   #Create temporary data frames for each of the financial statments
-  temp_dataBS <- data.frame(temp_data$BS$Q, FinancialStatement="BalanceSheet")
+  temp_dataBS <- data.frame(temp_data$BS, FinancialStatement="BalanceSheet")
   temp_dataBS$Metric <- rownames(temp_dataBS)
-  temp_dataIS <- data.frame(temp_data$IS$Q, FinancialStatement="IncomeStatement")
+  temp_dataIS <- data.frame(temp_data$IS, FinancialStatement="IncomeStatement")
   temp_dataIS$Metric <- rownames(temp_dataIS)
-  temp_dataCF <- data.frame(temp_data$CF$Q, FinancialStatement="CashFlow")
+  temp_dataCF <- data.frame(temp_data$CF, FinancialStatement="CashFlow")
   temp_dataCF$Metric <- rownames(temp_dataCF)
   
   #Melt the data to reshape the date column variables into a value under a single variable
@@ -94,7 +229,7 @@ for (i in 1:length(ticker)){
   
   #Get the unique dates for the stock ticker in the financial statements
   temp_data <- Qtrdata[Qtrdata$Ticker==ticker[i],]
-  temp_data <- temp_data[order(temp_data$Date, decreasing = TRUE),]
+  temp_data <- temp_data[order(temp_data$Date, decreasing=TRUE),]
   Dates <- unique(temp_data$Date)[1:4]
   
   #Loop to get data for all unique dates in the financial statments
@@ -108,11 +243,11 @@ for (i in 1:length(ticker)){
       counter <- counter + 1
       
       #Get the ticker's stock price and append date column
-      tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign = FALSE, src='google'), silent = TRUE)
+      tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign=FALSE, src='yahoo'), silent=TRUE)
       tempPrice_df <- data.frame(tempPrice_df)
       tempPrice_df$Date <- rownames(tempPrice_df)
       rownames(tempPrice_df) <- NULL
-      tempPrice_df <- tempPrice_df[order(tempPrice_df$Date, decreasing = FALSE),]
+      tempPrice_df <- tempPrice_df[order(tempPrice_df$Date, decreasing=FALSE),]
       
       #If the max date of the financial statement does not equal a date in the tempPrice_df, then subtract the Date by 1, then loop till TRUE
       if (Dates[x] == sort(tempPrice_df$Date)[1]){
@@ -144,7 +279,7 @@ for (i in 1:length(ticker)){
   
   #Get the unique dates for the stock ticker in the financial statements
   temp_data <- data[data$Ticker==ticker[i],]
-  temp_data <- temp_data[order(temp_data$Date, decreasing = TRUE),]
+  temp_data <- temp_data[order(temp_data$Date, decreasing=TRUE),]
   Dates <- unique(temp_data$Date)
   
   #Loop to get data for all unique dates in the financial statments
@@ -158,11 +293,11 @@ for (i in 1:length(ticker)){
       counter <- counter + 1
       
       #Get the ticker's stock price and append date column
-      tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign = FALSE, src='google'), silent = TRUE)
+      tempPrice_df <- try(getSymbols(ticker[i], from=Dates[x], auto.assign=FALSE, src='yahoo'), silent=TRUE)
       tempPrice_df <- data.frame(tempPrice_df)
       tempPrice_df$Date <- rownames(tempPrice_df)
       rownames(tempPrice_df) <- NULL
-      tempPrice_df <- tempPrice_df[order(tempPrice_df$Date, decreasing = FALSE),]
+      tempPrice_df <- tempPrice_df[order(tempPrice_df$Date, decreasing=FALSE),]
       
       #If the max date of the financial statement does not equal a date in the tempPrice_df, then subtract the Date by 1, then loop till TRUE
       if (Dates[x] == sort(tempPrice_df$Date)[1]){
@@ -198,7 +333,7 @@ for (i in 1:length(ticker)){
         financestats <- c("BalanceSheet")
         for (x in 1:length(financestats)){
                 temp <- temp_qtrdf[temp_qtrdf$FinancialStatement==financestats[x],]
-                dates <- sort(as.character(unique(temp$Date)), decreasing = TRUE)[1:4]
+                dates <- sort(as.character(unique(temp$Date)), decreasing=TRUE)[1:4]
                 k <- 1
                 while (dates[k] > max(temp_df$Date)){
                         temp2 <- temp[temp$Date==dates[k],]
@@ -223,7 +358,7 @@ for (i in 1:length(ticker)){
         temp <- temp_qtrdf[temp_qtrdf$FinancialStatement==financestats[1],]
         checkdate <- temp_df[temp_df$FinancialStatement==financestats[1],]
         checkdate <- max(as.character(checkdate$Date))
-        dates <- sort(as.character(unique(temp$Date)), decreasing = TRUE)[1:4]
+        dates <- sort(as.character(unique(temp$Date)), decreasing=TRUE)[1:4]
         k <- 1
         if (dates[k] > max(temp_df$Date)){
                 maxDate <- dates[k]
@@ -256,7 +391,7 @@ for (i in 1:length(ticker)){
         
         #Get the most current closing stock price and stock price for the previous years
         tempClosePrice <- ClosePrice_df[ClosePrice_df$Ticker==ticker[i],]
-        recentClosePrice <- try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE)
+        recentClosePrice <- try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign=FALSE, src='yahoo'), silent=TRUE)
         recentClosePrice <- data.frame(recentClosePrice)
         recentClosePrice$Date <- rownames(recentClosePrice) 
         row.names(recentClosePrice) <- NULL
@@ -307,7 +442,7 @@ for (i in 1:length(ticker)){
         PEGrowthRate <- round((OneYearValue / temp.df$EPS[1]) - 1, digits = 3)
         
         #Get the close price of the stock
-        tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE))
+        tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='yahoo'), silent = TRUE))
         colnames(tempPrice_df) <- sub(".+\\.", "", colnames(tempPrice_df))
         ClosePrice <- tempPrice_df$Close[nrow(tempPrice_df)]
         
@@ -352,7 +487,7 @@ for (i in 1:length(ticker)){
 
 ##Perform the DCF Valuation Model
 #Aggregate the data to get the free cash flow data
-FreeCashFlowAll_df <- data_finaldf[(data_finaldf$Metric=="Capital Expenditures" | data_finaldf$Metric=="Cash from Operating Activities"),]
+FreeCashFlowAll_df <- data_finaldf[(data_finaldf$Metric=="Capital Expenditures" | data_finaldf$Metric=="Total Cash Flow From Operating Activities"),]
 FreeCashFlowAll_df <- FreeCashFlowAll_df[order(as.character(FreeCashFlowAll_df$Ticker), FreeCashFlowAll_df$Date, decreasing = FALSE),]
 FreeCashFlowAll_df <- aggregate(Value ~ FinancialStatement + Date + Ticker, FreeCashFlowAll_df, FUN = sum)
 
@@ -381,7 +516,7 @@ for (i in 1:length(ticker)){
         for (x in 1:DCF_YearsProjection){
                 if (x==1){ #When i is equal to 1 then do not include the growth decline rate
                         tempYR1 <- maxCashFlow$Value[1] * (1 + (DCFGrowthRate * MarginSafety))
-                        tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='google'), silent = TRUE))
+                        tempPrice_df <- data.frame(try(getSymbols(ticker[i], from=Sys.Date()-5, auto.assign = FALSE, src='yahoo'), silent = TRUE))
                         colnames(tempPrice_df) <- sub(".+\\.", "", colnames(tempPrice_df))
                         ClosePrice <- tempPrice_df$Close[nrow(tempPrice_df)]
                         FCF <- maxCashFlow$Value[1]
@@ -444,8 +579,8 @@ for (i in 1:length(ticker)){
                                 TotalNPV_FCF <- DCF_finaldf[DCF_finaldf$Ticker==ticker[i] & DCF_finaldf$`NetPresentValue(PredictedValue)`!="NA",]
                                 TotalNPV_FCF <- sum(as.numeric(as.character(TotalNPV_FCF$`NetPresentValue(PredictedValue)`)))
                                 
-                                Cash_Equivalents <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash & Equivalents" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]
-                                LongTermDebt <- (data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Total Long Term Debt" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]) * -1
+                                Cash_Equivalents <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash And Cash Equivalents" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]
+                                LongTermDebt <- (data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Long Term Debt" & data_finaldf$Date==maxCashFlow$Date[1],]$Value[1]) * -1
                                 Company_Value <- round(sum(NPV_Terminal_Value, TotalNPV_FCF, Cash_Equivalents, LongTermDebt, na.rm = TRUE), digits = 2)
                                 
                                 DCF_finaldf2 <- rbind(DCF_finaldf2, cbind("Ticker"=ticker[i], "Total_NPV_FCF"=TotalNPV_FCF, "Terminal_Value"=Terminal_Value, "NPV(Terminal_Value)"=NPV_Terminal_Value, 
@@ -460,9 +595,8 @@ for (i in 1:length(ticker)){
 DCF_finaldf <- DCF_finaldf[order(DCF_finaldf$Ticker, DCF_finaldf$Date, decreasing = TRUE),]
 row.names(DCF_finaldf$Date) <- NULL
 
-ggplot(DCF_finaldf, aes(x = as.Date(Date), y = as.numeric(Value), fill = Ticker)) + geom_bar() 
-
-
+print(DCF_finaldf2[c("Ticker", "Most_Current_Stock_Price", "DCF_Valuation")])
+ggplot(DCF_finaldf, aes(x = as.Date(Date), y = as.numeric(Value), fill = Ticker)) + geom_bar(stat = "identity")
 
 
 ##Miscellaneous metrics
@@ -470,7 +604,7 @@ ggplot(DCF_finaldf, aes(x = as.Date(Date), y = as.numeric(Value), fill = Ticker)
 #Show cash and cash equivalents over time
 Cash_Equivalents_df <- data.frame()
 for (i in 1:length(ticker)){
-        CashEquivalents_temp <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash & Equivalents",][,3:5]
+        CashEquivalents_temp <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$Metric=="Cash And Cash Equivalents",][,3:5]
         Cash_Equivalents_df <- rbind(Cash_Equivalents_df, CashEquivalents_temp)
         
 }
@@ -522,7 +656,7 @@ for (i in 1:length(ticker)){
         Revenue_df <- data_finaldf[data_finaldf$Metric=="Total Revenue" & data_finaldf$Ticker==ticker[i],]
         Revenue_df <- Revenue_df[order(Revenue_df$Date, decreasing = TRUE),]
         
-        NetIncome_df <- data_finaldf[data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
+        NetIncome_df <- data_finaldf[data_finaldf$FinancialStatement=="IncomeStatement" & data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
         NetIncome_df <- NetIncome_df[order(NetIncome_df$Date, decreasing = TRUE),]
         
         NetMargin <- round(NetIncome_df$Value / Revenue_df$Value, digits = 3)
@@ -552,7 +686,7 @@ for (i in 1:length(ticker)){
         
         ShareholdersEquity <- ShareholdersEquity_Assets$Value - ShareholdersEquity_Liabilities$Value
         
-        NetIncome_df <- data_finaldf[data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
+        NetIncome_df <- data_finaldf[data_finaldf$FinancialStatement=="IncomeStatement" & data_finaldf$Metric=="Net Income" & data_finaldf$Ticker==ticker[i],]
         NetIncome_df <- NetIncome_df[NetIncome_df$Date<=max(ShareholdersEquity_Assets$Date),]
         NetIncome_df <- NetIncome_df[order(NetIncome_df$Date, decreasing = TRUE),]
         
@@ -572,7 +706,7 @@ ReturnEquity_df[,7] <- as.numeric(as.character(ReturnEquity_df[,7]))
 ggplot(ReturnEquity_df, aes(x=Date, y=ReturnEquity, fill=Ticker, label=ReturnEquity)) + 
         geom_bar(stat = "identity", width = 100, color = "gray") + facet_grid(~ Ticker) + geom_text(vjust=-.25) +
         ggtitle("Return on Equity") + labs(x="Date", y="Return on Equity") +
-        theme(plot.title = element_text(hjust = 0.5, size = 25)) 
+        theme(plot.title = element_text(hjust = 0.5, size = 25))
 
 
 
@@ -580,7 +714,7 @@ ggplot(ReturnEquity_df, aes(x=Date, y=ReturnEquity, fill=Ticker, label=ReturnEqu
 #Show long term debt to equity over time
 DebtEquity_df <- data.frame()
 for (i in 1: length(ticker)){
-        LongTermDebt_df <- data_finaldf[data_finaldf$Metric=="Total Long Term Debt" & data_finaldf$Ticker==ticker[i],]
+        LongTermDebt_df <- data_finaldf[data_finaldf$Metric=="Long Term Debt" & data_finaldf$Ticker==ticker[i],]
         LongTermDebt_df <- LongTermDebt_df[order(LongTermDebt_df$Date, decreasing = TRUE),]
         
         ShareholdersEquity_Assets <- data_finaldf[data_finaldf$Ticker==ticker[i] & data_finaldf$FinancialStatement=="BalanceSheet" & data_finaldf$Metric=="Total Assets",]
@@ -608,13 +742,3 @@ ggplot(DebtEquity_df, aes(x=Date, y=DebtToEquity, fill=Ticker, label=DebtToEquit
         geom_bar(stat = "identity", width = 100, color = "gray") + facet_grid(~ Ticker) + geom_text(vjust=-.25) +
         ggtitle("Long Term Debt to Equity Ratio") + labs(x="Date", y="Long Term Debt to Equity") +
         theme(plot.title = element_text(hjust = 0.5))
-
-
-
-
-
-
-
-
-
-
